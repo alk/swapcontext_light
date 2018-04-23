@@ -1,0 +1,32 @@
+This is small .so library that provides replacement of Linux/amd64
+swapcontext function. Stock swapcontext can be replaced by
+LD_PRELOAD-ing this .so file.
+
+Regular swapcontext is relatively slow because it handles signal mask
+(so invokes sigprocmask syscall) and FPU control registers. Both are not very
+frequently changed, so we're practically wasting hundreds of nanos per
+call doing this.
+
+This implementation only handles basic registers, skipping all FPU
+state and signal mask manipulation. So it is a bit of hack, but hack
+that should work very well in practice.
+
+Ruby's fibers facility, exercised in particular by Enumerator, is
+heavily relying on performance of swapcontext.
+
+This 'light' implementation makes swapcontext about 10x faster on my
+box. So ruby fibers switching becomes roughly 3.5x faster.
+
+I.e.:
+
+$ LD_PRELOAD=./swapcontext_light.so ruby -rfiber -rbenchmark -e'def ex_fibers(n); f = Fiber.new { n.times { Fiber.yield } }; while f.alive?; f.resume; end; end' -e 'puts Benchmark.measure { ex_fibers(50000000) }'
+  6.141363   0.000151   6.141514 (  6.141386)
+$ ruby -rfiber -rbenchmark -e'def ex_fibers(n); f = Fiber.new { n.times { Fiber.yield } }; while f.alive?; f.resume; end; end' -e 'puts Benchmark.measure { ex_fibers(50000000) }'
+ 14.878579   7.223100  22.101679 ( 22.101994)
+
+I've built it as part of work on malloc tracer and I manually tested
+it back then. Including correctness of unwind info at each
+instruction. So given this is just few instructions, and not likely to
+evolve, no tests are provided.
+
+This work is offered under public domain.
